@@ -48,7 +48,6 @@ import jakarta.inject.Named
 import jakarta.inject.Singleton
 import org.reactivestreams.Publisher
 import spock.lang.AutoCleanup
-import spock.lang.PendingFeature
 import spock.lang.Shared
 import spock.lang.Specification
 
@@ -113,7 +112,6 @@ class JwksCacheSpec extends Specification {
         }
     }
 
-    @PendingFeature
     void "JWK are cached"() {
         given:
         HttpClient googleHttpClient = embeddedServer.applicationContext.createBean(HttpClient, googleEmbeddedServer.URL)
@@ -129,54 +127,56 @@ class JwksCacheSpec extends Specification {
         BlockingHttpClient client = httpClient.toBlocking()
 
         expect:
-        0 == totalInvocations()
+        0 == totalJwksInvocations()
 
         when:
         BearerAccessRefreshToken googleBearerAccessRefreshToken = login(googleClient)
-
-        then:
-        noExceptionThrown()
-        googleBearerAccessRefreshToken.accessToken
-
-        when:
         String googleAccessToken = googleBearerAccessRefreshToken.accessToken
         JWT googleJWT = JWTParser.parse(googleAccessToken)
+
         BearerAccessRefreshToken appleBearerAccessRefreshToken = login(appleClient)
         String appleAccessToken = appleBearerAccessRefreshToken.accessToken
         JWT appleJWT = JWTParser.parse(appleAccessToken)
+
         BearerAccessRefreshToken cognitoBearerAccessRefreshToken = login(cognitoClient)
         String cognitoAccessToken = cognitoBearerAccessRefreshToken.accessToken
         JWT cognitoJWT = JWTParser.parse(cognitoAccessToken)
 
         then:
         noExceptionThrown()
+
         assertKeyId(googleJWT, 'google')
+        googleBearerAccessRefreshToken.accessToken
+
         assertKeyId(appleJWT, 'apple')
         appleBearerAccessRefreshToken.accessToken
+
         assertKeyId(cognitoJWT, 'cognito')
         cognitoBearerAccessRefreshToken.accessToken
 
         and:
-        0 == totalInvocations()
+        0 == totalJwksInvocations()
 
         when:
-        int oldInvocations = totalInvocations()
+        int oldInvocations = totalJwksInvocations()
         hello(client, googleAccessToken)
         hello(client, appleAccessToken)
         hello(client, cognitoAccessToken)
 
         then:
-        totalInvocations() >= (oldInvocations + 3)
+        totalJwksInvocations() >= (oldInvocations + 3)
 
         when: 'when you invoke it again all the keys are cached'
-        oldInvocations = totalInvocations()
+        oldInvocations = totalJwksInvocations()
+        hello(client, googleAccessToken)
         hello(client, appleAccessToken)
+        hello(client, cognitoAccessToken)
 
         then:
-        totalInvocations() == oldInvocations
+        totalJwksInvocations() == oldInvocations
 
         when: "generate new keys for cognito but with same id, other JWK sets do not match the ID, for cognito the verification key fails and a new one is fetched from the server"
-        oldInvocations = totalInvocations()
+        oldInvocations = totalJwksInvocations()
         int invocations = cognitoInvocations()
         refresh(cognitoClient)
         cognitoEmbeddedServer.applicationContext.getBean(CognitoKeysController).invocations = invocations
@@ -185,10 +185,10 @@ class JwksCacheSpec extends Specification {
         hello(client, cognitoAccessToken)
 
         then:
-        totalInvocations() >= (oldInvocations + 1)
+        totalJwksInvocations() >= (oldInvocations + 1)
 
         when: 'generate a new JWKS with new kid, JWKS attempt to refresh'
-        oldInvocations = totalInvocations()
+        oldInvocations = totalJwksInvocations()
         CognitoSignatureConfiguration cognitoSignatureConfiguration = cognitoEmbeddedServer.applicationContext.getBean(CognitoSignatureConfiguration)
         invocations = cognitoInvocations()
         refresh(cognitoClient)
@@ -199,10 +199,10 @@ class JwksCacheSpec extends Specification {
         hello(client, cognitoAccessToken)
 
         then:
-        totalInvocations() >= (oldInvocations + 1)
+        totalJwksInvocations() >= (oldInvocations + 1)
 
         when: 'generate a new JWT without kid, JWKS attempt to refresh'
-        oldInvocations = totalInvocations()
+        oldInvocations = totalJwksInvocations()
         GoogleSignatureConfiguration googleSignatureConfiguration = googleEmbeddedServer.applicationContext.getBean(GoogleSignatureConfiguration)
         invocations = googleInvocations()
         refresh(googleClient)
@@ -213,26 +213,26 @@ class JwksCacheSpec extends Specification {
         hello(client, googleAccessToken)
 
         then:
-        totalInvocations() >= (oldInvocations + 1)
+        totalJwksInvocations() >= (oldInvocations + 1)
 
         when:
-        oldInvocations = totalInvocations()
+        oldInvocations = totalJwksInvocations()
         String randomSignedJwt = randomSignedJwt()
         hello(client, randomSignedJwt, false)
 
         then:
-        totalInvocations() >= oldInvocations
+        totalJwksInvocations() >= oldInvocations
 
         when:
-        oldInvocations = totalInvocations()
+        oldInvocations = totalJwksInvocations()
         sleep(6_000) // cache expires the token is still invalid but JWKS attempts to refresh
         hello(client, randomSignedJwt, false)
 
         then:
-        totalInvocations() == (oldInvocations + 3)
+        totalJwksInvocations() == (oldInvocations + 3)
     }
 
-    private int totalInvocations() {
+    private int totalJwksInvocations() {
         googleInvocations() + appleInvocations() + cognitoInvocations()
     }
 
